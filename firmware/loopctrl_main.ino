@@ -35,6 +35,9 @@ Atm_button pushButton1;
 Atm_button pushButton2;
 Atm_button pushButton3;
 
+Atm_analog poti0;
+Atm_analog switch0;
+
 Atm_led led0;
 
 Atm_timer screenTimer;
@@ -42,13 +45,19 @@ Atm_timer screenTimer;
 // +++ States
 enum modeState
 {
-  BOOT,
+  MODE_BOOT,
   MODE_0,
   MODE_A,
   MODE_B
 };
 
-enum modeState curMode;
+struct GlobalStatus
+{
+  enum modeState mode;
+  uint8_t acceleration;
+};
+
+GlobalStatus curState;
 
 void setupLogging()
 {
@@ -77,6 +86,9 @@ void setupInputs()
   pushButton1.begin(PUSH_BUTTON_1).onPress(onPushButtonPress, 1);
   pushButton2.begin(PUSH_BUTTON_2).onPress(onPushButtonPress, 2);
   pushButton3.begin(PUSH_BUTTON_3).onPress(onPushButtonPress, 3);
+
+  poti0.begin(POTI_0, 100).onChange(onAccelerationPotiChange, 0);
+  switch0.begin(SWITCH_0, 100).onChange(onModeSwitchChange, 0);
 }
 
 void setupOutputs()
@@ -86,13 +98,19 @@ void setupOutputs()
 
 void boot()
 {
+  // initialize state
+  curState.mode = MODE_BOOT;
+  curState.acceleration = 0;
+
+  // outputs
+  updateScreen();
   screenTimer.begin(100)
       .repeat(ATM_COUNTER_OFF)
       .onTimer(onUpdateScreenTimer)
       .start();
   delay(BOOT_DELAY);
   led0.on();
-  curMode = MODE_0;
+  curState.mode = MODE_0;
 }
 
 // +++ Screen
@@ -103,30 +121,48 @@ void updateScreenBoot()
   display.println("Booting...");
 }
 
-void updateScreenMode()
+void updateScreenMode(const char *mode)
 {
-  display.setCursor(0, 20);
-  display.println("Running...");
+
+  display.setTextSize(2);
+  display.setCursor(0, 16);
+  display.println(mode);
+  display.setCursor(90, 16);
+  char tmp[4];
+  if (sprintf(tmp, "%03d", curState.acceleration))
+    display.println(tmp);
+
+  display.fillRect(30, 16, 44, 20, SSD1306_WHITE);
+  display.setTextColor(SSD1306_BLACK); //inverse
+  display.setTextSize(1);
+  display.setCursor(34, 21);
+  display.println("F-DOWN");
 }
 
 void updateScreen()
 {
   display.clearDisplay();
   display.setCursor(0, 0);
+  display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
   display.println((String)F("DL1PEU LoopCtrl ") + VERSION);
+  display.drawLine(0, 9, display.width() - 1, 9, SSD1306_WHITE);
 
-  switch (curMode)
+  switch (curState.mode)
   {
   case MODE_0:
-    updateScreenMode();
+    updateScreenMode("-");
+    break;
+  case MODE_A:
+    updateScreenMode("A");
+    break;
+  case MODE_B:
+    updateScreenMode("B");
     break;
   default:
     updateScreenBoot();
     break;
   }
-  //display.setTextSize(3);
-  //display.setTextColor(SSD1306_BLACK, SSD1306_WHITE); // Draw 'inverse'
   display.display();
 }
 
@@ -134,6 +170,23 @@ void updateScreen()
 void onPushButtonPress(int idx, int v, int up)
 {
   Log.verbose(F("onPushButtonPress: idx=%d v=%d up=%d" CR), idx, v, up);
+}
+
+void onAccelerationPotiChange(int idx, int v, int up)
+{
+  //Log.verbose(F("onPotiChange: idx=%d v=%d up=%d" CR), idx, v, up);
+  curState.acceleration = (uint8_t)(v / 1024.0 * 255);
+}
+
+void onModeSwitchChange(int idx, int v, int up)
+{
+  //Log.verbose(F("onModeSwitchChange: idx=%d v=%d up=%d" CR), idx, v, up);
+  if (v < 100)
+    curState.mode = MODE_0;
+  else if (v < 700)
+    curState.mode = MODE_A;
+  else
+    curState.mode = MODE_B;
 }
 
 void onUpdateScreenTimer(int idx, int v, int up)
@@ -144,7 +197,6 @@ void onUpdateScreenTimer(int idx, int v, int up)
 // +++ Setup and main loop
 void setup()
 {
-  curMode = BOOT;
   // Setup logging / debugging
   Serial.begin(9600);
   setupLogging();
@@ -154,8 +206,6 @@ void setup()
   setupOutputs();
 
   setupDisplay();
-  updateScreen();
-
   boot();
 
   /*
