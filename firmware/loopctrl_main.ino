@@ -298,44 +298,10 @@ void setup()
   setupDisplay();
   boot();
 
-  /*
-  pinMode(MOTOR_A_PWM, OUTPUT);  //Set control pins to be outputs
-  pinMode(MOTOR_A_DIR, OUTPUT);
-*/
-
   Log.notice(F("DL1PEU - MagLoopCtrl %s initialized" CR), VERSION);
 }
 
 void loop()
 {
-  // call automaton framework
   automaton.run();
-
-  /*
-  digitalWrite(MOTOR_A_DIR, LOW); 
-  analogWrite(MOTOR_A_PWM, 255);  
-  delay(2000);
-  
-  analogWrite(MOTOR_A_PWM, 0);  
-  delay(2000);
-
-  digitalWrite(MOTOR_A_DIR, HIGH); 
-  analogWrite(MOTOR_A_PWM, 255);  
-  delay(2000);
-
-  analogWrite(MOTOR_A_PWM, 0);  
-  delay(2000);
-  */
-
-  /*
-  int val;
-  val = analogRead(SWITCH_0);
-  Serial.println(val);
-*/
-  // read the state of the pushbutton value:
-  //buttonState = digitalRead(buttonPin1);
-
-  //Serial.println(buttonState);
-
-  //delay(10);
 }
