@@ -1,5 +1,11 @@
 #include <Automaton.h>
 #include <ArduinoLog.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define VERSION "v0.01"
+#define BOOT_DELAY 2000
 
 // +++ Pin configuration
 const uint8_t MOTOR_A_PWM = 3; // Motor A: PWM
@@ -17,7 +23,11 @@ const uint8_t LED_0 = 13; // Status indicator LED
 const uint8_t POTI_0 = A0;   // Analog turn poti
 const uint8_t SWITCH_0 = A1; // Mode selector switch
 
-// TODO: A4/A5 for I2C display
+// +++ Display configuration
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 32
+#define OLED_RESET -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 // +++ Global variables
 Atm_button pushButton0;
@@ -27,95 +37,165 @@ Atm_button pushButton3;
 
 Atm_led led0;
 
-// +++ Logging helper
-void printTimestamp(Print *_logOutput)
-{
-  char c[12];
-  int m = sprintf(c, "%10lu ", millis());
-  _logOutput->print(c);
-}
+Atm_timer screenTimer;
 
-void printNewline(Print *_logOutput)
+// +++ States
+enum modeState
 {
-  _logOutput->print('\n');
-}
+  BOOT,
+  MODE_0,
+  MODE_A,
+  MODE_B
+};
+
+enum modeState curMode;
 
 void setupLogging()
 {
   Log.begin(LOG_LEVEL_VERBOSE, &Serial);
-  Log.setPrefix(printTimestamp);
-  Log.setSuffix(printNewline);
+}
+
+void setupDisplay()
+{
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
+  {
+    led0.blink(1000, 1000).start();
+    Log.fatal(F("SSD1306 display driver allocation failed"));
+    for (;;)
+    {
+      automaton.run(); // stay in failed state
+    }
+  }
+
+  display.clearDisplay();
+  display.setCursor(0, 0);
+}
+
+void setupInputs()
+{
+  pushButton0.begin(PUSH_BUTTON_0).onPress(onPushButtonPress, 0); // TODO: add other events as needed https://github.com/tinkerspy/Automaton/wiki/The-button-machine#atm_button--onrelease-connector-connector-argument-
+  pushButton1.begin(PUSH_BUTTON_1).onPress(onPushButtonPress, 1);
+  pushButton2.begin(PUSH_BUTTON_2).onPress(onPushButtonPress, 2);
+  pushButton3.begin(PUSH_BUTTON_3).onPress(onPushButtonPress, 3);
+}
+
+void setupOutputs()
+{
+  led0.begin(LED_0);
+}
+
+void boot()
+{
+  screenTimer.begin(100)
+      .repeat(ATM_COUNTER_OFF)
+      .onTimer(onUpdateScreenTimer)
+      .start();
+  delay(BOOT_DELAY);
+  led0.on();
+  curMode = MODE_0;
+}
+
+// +++ Screen
+
+void updateScreenBoot()
+{
+  display.setCursor(0, 20);
+  display.println("Booting...");
+}
+
+void updateScreenMode()
+{
+  display.setCursor(0, 20);
+  display.println("Running...");
+}
+
+void updateScreen()
+{
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.setTextColor(SSD1306_WHITE);
+  display.println((String)F("DL1PEU LoopCtrl ") + VERSION);
+
+  switch (curMode)
+  {
+  case MODE_0:
+    updateScreenMode();
+    break;
+  default:
+    updateScreenBoot();
+    break;
+  }
+  //display.setTextSize(3);
+  //display.setTextColor(SSD1306_BLACK, SSD1306_WHITE); // Draw 'inverse'
+  display.display();
 }
 
 // +++ Events
 void onPushButtonPress(int idx, int v, int up)
 {
-  Log.verbose("onPushButtonPress: idx=%d v=%d up=%d", idx, v, up);
+  Log.verbose(F("onPushButtonPress: idx=%d v=%d up=%d" CR), idx, v, up);
+}
+
+void onUpdateScreenTimer(int idx, int v, int up)
+{
+  updateScreen();
 }
 
 // +++ Setup and main loop
 void setup()
 {
+  curMode = BOOT;
   // Setup logging / debugging
   Serial.begin(9600);
   setupLogging();
 
-  // Setup inputs
-  pushButton0.begin(PUSH_BUTTON_0).onPress(onPushButtonPress, 0);  // TODO: add other events as needed https://github.com/tinkerspy/Automaton/wiki/The-button-machine#atm_button--onrelease-connector-connector-argument-
-  pushButton1.begin(PUSH_BUTTON_1).onPress(onPushButtonPress, 1);
-  pushButton2.begin(PUSH_BUTTON_2).onPress(onPushButtonPress, 2);
-  pushButton3.begin(PUSH_BUTTON_3).onPress(onPushButtonPress, 3);
+  setupInputs();
 
+  setupOutputs();
 
-  led0.begin( LED_0 ).blink( 40, 250 );
-  led0.trigger( led0.EVT_BLINK );
+  setupDisplay();
+  updateScreen();
 
+  boot();
 
   /*
+  pinMode(MOTOR_A_PWM, OUTPUT);  //Set control pins to be outputs
+  pinMode(MOTOR_A_DIR, OUTPUT);
+*/
 
-  pinMode(pwm_a, OUTPUT);  //Set control pins to be outputs
-  pinMode(pwm_b, OUTPUT);
-  pinMode(dir_a, OUTPUT);
-  pinMode(dir_b, OUTPUT);
-
-  pinMode(buttonPin1, INPUT_PULLUP);
-  
-  analogWrite(pwm_a, 0);  //pwm 0 ... 255
-  analogWrite(pwm_b, 0);
-
-  */
-
-  Log.notice("DL1PEU - MagLoopCtrl initialized");
+  Log.notice(F("DL1PEU - MagLoopCtrl %s initialized" CR), VERSION);
 }
 
 void loop()
 {
   // call automaton framework
   automaton.run();
+
   /*
-  digitalWrite(dir_a, LOW); 
-  analogWrite(pwm_a, 255);  
+  digitalWrite(MOTOR_A_DIR, LOW); 
+  analogWrite(MOTOR_A_PWM, 255);  
   delay(2000);
   
-  analogWrite(pwm_a, 0);  
+  analogWrite(MOTOR_A_PWM, 0);  
   delay(2000);
 
-  digitalWrite(dir_a, HIGH); 
-  analogWrite(pwm_a, 255);  
+  digitalWrite(MOTOR_A_DIR, HIGH); 
+  analogWrite(MOTOR_A_PWM, 255);  
   delay(2000);
 
-  analogWrite(pwm_a, 0);  
+  analogWrite(MOTOR_A_PWM, 0);  
   delay(2000);
   */
 
+  /*
   int val;
   val = analogRead(SWITCH_0);
   Serial.println(val);
-
+*/
   // read the state of the pushbutton value:
   //buttonState = digitalRead(buttonPin1);
 
   //Serial.println(buttonState);
 
-  delay(10);
+  //delay(10);
 }
