@@ -55,6 +55,9 @@ struct GlobalStatus
 {
   enum modeState mode;
   uint8_t acceleration;
+  bool moveDown;
+  bool moveUp;
+  bool moveFast;
 };
 
 GlobalStatus curState;
@@ -82,18 +85,35 @@ void setupDisplay()
 
 void setupInputs()
 {
-  pushButton0.begin(PUSH_BUTTON_0).onPress(onPushButtonPress, 0); // TODO: add other events as needed https://github.com/tinkerspy/Automaton/wiki/The-button-machine#atm_button--onrelease-connector-connector-argument-
-  pushButton1.begin(PUSH_BUTTON_1).onPress(onPushButtonPress, 1);
-  pushButton2.begin(PUSH_BUTTON_2).onPress(onPushButtonPress, 2);
-  pushButton3.begin(PUSH_BUTTON_3).onPress(onPushButtonPress, 3);
+  pushButton0.begin(PUSH_BUTTON_0)
+      .onPress(onPushButtonPress, 0)
+      .onRelease(onPushButtonRelease, 0);
+  pushButton1.begin(PUSH_BUTTON_1)
+      .onPress(onPushButtonPress, 1)
+      .onRelease(onPushButtonRelease, 1);
+  pushButton2.begin(PUSH_BUTTON_2)
+      .onPress(onPushButtonPress, 2)
+      .onRelease(onPushButtonRelease, 2);
+  pushButton3.begin(PUSH_BUTTON_3)
+      .onPress(onPushButtonPress, 3)
+      .onRelease(onPushButtonRelease, 3);
 
-  poti0.begin(POTI_0, 100).onChange(onAccelerationPotiChange, 0);
-  switch0.begin(SWITCH_0, 100).onChange(onModeSwitchChange, 0);
+  poti0.begin(POTI_0, 100)
+      .onChange(onAccelerationPotiChange, 0);
+  switch0.begin(SWITCH_0, 100)
+      .onChange(onModeSwitchChange, 0);
 }
 
 void setupOutputs()
 {
   led0.begin(LED_0);
+  pinMode(MOTOR_A_PWM, OUTPUT);
+  pinMode(MOTOR_A_DIR, OUTPUT);
+  pinMode(MOTOR_B_PWM, OUTPUT);
+  pinMode(MOTOR_B_DIR, OUTPUT);
+
+  analogWrite(MOTOR_A_PWM, 0);
+  analogWrite(MOTOR_B_PWM, 0);
 }
 
 void boot()
@@ -101,6 +121,9 @@ void boot()
   // initialize state
   curState.mode = MODE_BOOT;
   curState.acceleration = 0;
+  curState.moveDown = false;
+  curState.moveUp = false;
+  curState.moveFast = false;
 
   // outputs
   updateScreen();
@@ -132,11 +155,21 @@ void updateScreenMode(const char *mode)
   if (sprintf(tmp, "%03d", curState.acceleration))
     display.println(tmp);
 
-  display.fillRect(30, 16, 44, 20, SSD1306_WHITE);
-  display.setTextColor(SSD1306_BLACK); //inverse
-  display.setTextSize(1);
-  display.setCursor(34, 21);
-  display.println("F-DOWN");
+  if (curState.moveDown || curState.moveUp)
+  {
+    display.fillRect(30, 16, 44, 20, SSD1306_WHITE);
+    display.setTextColor(SSD1306_BLACK); //inverse
+    display.setTextSize(1);
+    display.setCursor(34, 21);
+    if (curState.moveDown && !curState.moveFast)
+      display.println(" DOWN");
+    if (curState.moveDown && curState.moveFast)
+      display.println("F-DOWN");
+    if (curState.moveUp && !curState.moveFast)
+      display.println("  UP");
+    if (curState.moveUp && curState.moveFast)
+      display.println(" F-UP");
+  }
 }
 
 void updateScreen()
@@ -166,16 +199,73 @@ void updateScreen()
   display.display();
 }
 
+void triggerMotorAction()
+{
+  if (curState.mode != MODE_A && curState.mode != MODE_B)
+    return;
+
+  uint16_t acc = 0;
+  if (curState.moveUp || curState.moveDown)
+  {
+    acc = 255;
+    if (!curState.moveFast)
+      acc = curState.acceleration;
+  }
+
+  uint8_t mDir = MOTOR_A_DIR;
+  uint8_t mPwm = MOTOR_A_PWM;
+
+  if (curState.mode == MODE_B)
+  {
+    mDir = MOTOR_B_DIR;
+    mPwm = MOTOR_B_PWM;
+  }
+
+  if (curState.moveUp)
+    digitalWrite(mDir, HIGH);
+  else
+    digitalWrite(mDir, LOW);
+
+  analogWrite(mPwm, acc);
+}
+
 // +++ Events
 void onPushButtonPress(int idx, int v, int up)
 {
-  Log.verbose(F("onPushButtonPress: idx=%d v=%d up=%d" CR), idx, v, up);
+  //Log.verbose(F("onPushButtonPress: idx=%d v=%d up=%d" CR), idx, v, up);
+  switch (idx)
+  {
+  case 0:
+    curState.moveDown = true;
+    break;
+  case 1:
+    curState.moveDown = true;
+    curState.moveFast = true;
+    break;
+  case 2:
+    curState.moveUp = true;
+    break;
+  case 3:
+    curState.moveUp = true;
+    curState.moveFast = true;
+    break;
+  }
+  triggerMotorAction();
+}
+
+void onPushButtonRelease(int idx, int v, int up)
+{
+  //Log.verbose(F("onPushButtonRelease: idx=%d v=%d up=%d" CR), idx, v, up);
+  curState.moveDown = false;
+  curState.moveUp = false;
+  curState.moveFast = false;
+  triggerMotorAction();
 }
 
 void onAccelerationPotiChange(int idx, int v, int up)
 {
   //Log.verbose(F("onPotiChange: idx=%d v=%d up=%d" CR), idx, v, up);
-  curState.acceleration = (uint8_t)(v / 1024.0 * 255);
+  curState.acceleration = 254 - (uint8_t)(v / 1024.0 * 255);
 }
 
 void onModeSwitchChange(int idx, int v, int up)
